@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini LMS - Courses</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'style.css' %}">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/courses/" class="navbar-brand"><span>🎓</span> Mini LMS</a>
+  <ul class="navbar-nav">
+    <li><a href="/courses/" class="active">📚 Courses</a></li>
+    <li><a href="/assignments/">📝 Assignments</a></li>
+    <li><span class="user-badge" id="user-info">👤 ...</span></li>
+    <li><a href="/" onclick="logout()">🚪 Logout</a></li>
+  </ul>
+</nav>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <h2>📚 Courses</h2>
+      <p id="page-subtitle">Browse and manage courses</p>
+    </div>
+    <div id="instructor-actions" class="hidden">
+      <button class="btn btn-primary" onclick="openModal('create-course-modal')">
+        ➕ New Course
+      </button>
+    </div>
+  </div>
+
+  <div id="alert-box"></div>
+
+  <div id="stats-section" class="stats-grid hidden">
+    <div class="stat-card">
+      <div class="number" id="stat-courses">-</div>
+      <div class="label">Total Courses</div>
+    </div>
+    <div class="stat-card">
+      <div class="number" id="stat-enrolled">-</div>
+      <div class="label">Enrolled</div>
+    </div>
+    <div class="stat-card">
+      <div class="number" id="stat-lessons">-</div>
+      <div class="label">Total Lessons</div>
+    </div>
+  </div>
+
+  <div id="loading" class="text-center"><div class="spinner"></div></div>
+  <div id="courses-grid" class="grid-3 hidden"></div>
+  <div id="empty-state" class="empty-state hidden">
+    <div class="icon">📭</div>
+    <h3>No courses yet</h3>
+    <p id="empty-msg">No courses available.</p>
+  </div>
+</div>
+
+<!-- Create Course Modal -->
+<div class="modal-overlay" id="create-course-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>➕ Create New Course</h3>
+      <button class="modal-close" onclick="closeModal('create-course-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-alert"></div>
+      <div class="form-group">
+        <label class="form-label">Course Title *</label>
+        <input type="text" id="course-title" class="form-control" placeholder="e.g. Introduction to Python">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description *</label>
+        <textarea id="course-desc" class="form-control" rows="4" placeholder="What will students learn?"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">
+          <input type="checkbox" id="course-published" checked> Publish immediately
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('create-course-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createCourse()" style="width:auto">✅ Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Lesson Modal -->
+<div class="modal-overlay" id="add-lesson-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>📖 Add Lesson</h3>
+      <button class="modal-close" onclick="closeModal('add-lesson-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="lesson-alert"></div>
+      <input type="hidden" id="lesson-course-id">
+      <div class="form-group">
+        <label class="form-label">Lesson Title *</label>
+        <input type="text" id="lesson-title" class="form-control" placeholder="Lesson title">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Content *</label>
+        <textarea id="lesson-content" class="form-control" rows="5" placeholder="Lesson content..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Order</label>
+        <input type="number" id="lesson-order" class="form-control" value="1" min="1">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('add-lesson-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="addLesson()" style="width:auto">✅ Add Lesson</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const API = '/api';
+  let user = null;
+  let courses = [];
+
+  function getToken() { return localStorage.getItem('access'); }
+
+  function authHeaders() {
+    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` };
+  }
+
+  function logout() {
+    localStorage.clear();
+    window.location.href = '/';
+  }
+
+  function openModal(id) { document.getElementById(id).classList.add('open'); }
+  function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+  function showAlert(msg, type = 'danger', box = 'alert-box') {
+    document.getElementById(box).innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+    setTimeout(() => { document.getElementById(box).innerHTML = ''; }, 4000);
+  }
+
+  async function init() {
+    const token = getToken();
+    if (!token) return window.location.href = '/';
+
+    // Load user profile
+    const res = await fetch(`${API}/accounts/profile/`, { headers: authHeaders() });
+    if (res.status === 401) return logout();
+    user = await res.json();
+
+    document.getElementById('user-info').textContent = `👤 ${user.first_name || user.username} (${user.role})`;
+
+    if (user.role === 'instructor' || user.role === 'admin') {
+      document.getElementById('instructor-actions').classList.remove('hidden');
+      document.getElementById('page-subtitle').textContent = 'Manage your courses';
+    } else {
+      document.getElementById('page-subtitle').textContent = 'Browse and enroll in available courses';
+    }
+
+    document.getElementById('stats-section').classList.remove('hidden');
+    await loadCourses();
+  }
+
+  async function loadCourses() {
+    document.getElementById('loading').classList.remove('hidden');
+    document.getElementById('courses-grid').classList.add('hidden');
+    document.getElementById('empty-state').classList.add('hidden');
+
+    const res = await fetch(`${API}/courses/`, { headers: authHeaders() });
+    courses = await res.json();
+
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('stat-courses').textContent = courses.length;
+
+    const enrolled = courses.filter(c => c.is_enrolled).length;
+    document.getElementById('stat-enrolled').textContent = enrolled;
+
+    const totalLessons = courses.reduce((s, c) => s + (c.lessons ? c.lessons.length : 0), 0);
+    document.getElementById('stat-lessons').textContent = totalLessons;
+
+    if (courses.length === 0) {
+      document.getElementById('empty-state').classList.remove('hidden');
+      document.getElementById('empty-msg').textContent = user.role === 'instructor'
+        ? 'Create your first course to get started!'
+        : 'No courses available yet.';
+      return;
+    }
+
+    const grid = document.getElementById('courses-grid');
+    grid.innerHTML = courses.map(c => courseCard(c)).join('');
+    grid.classList.remove('hidden');
+  }
+
+  function courseCard(c) {
+    const lessons = c.lessons ? c.lessons.length : 0;
+    const isInstructor = user.role === 'instructor' || user.role === 'admin';
+    const actionBtns = isInstructor
+      ? `<button class="btn btn-secondary btn-sm" onclick="openAddLesson(${c.id})">📖 Add Lesson</button>
+         <a href="/assignments/?course=${c.id}" class="btn btn-outline btn-sm">📝 Assignments</a>`
+      : (c.is_enrolled
+          ? `<button class="btn btn-danger btn-sm" onclick="unenroll(${c.id})">👋 Unenroll</button>
+             <a href="/assignments/" class="btn btn-outline btn-sm">📝 View Assignments</a>`
+          : `<button class="btn btn-success btn-sm" onclick="enroll(${c.id})">✅ Enroll</button>`);
+
+    return `
+      <div class="card course-card">
+        <div class="course-card-header">
+          <h3>${c.title}</h3>
+          <div class="instructor">👨‍🏫 ${c.instructor.first_name || c.instructor.username}</div>
+        </div>
+        <div class="course-card-body">
+          <p>${c.description.length > 120 ? c.description.slice(0, 120) + '...' : c.description}</p>
+          <div class="course-meta">
+            <span>📖 ${lessons} lesson${lessons !== 1 ? 's' : ''}</span>
+            <span>👥 ${c.student_count} students</span>
+            ${c.is_enrolled ? '<span class="badge badge-success">✓ Enrolled</span>' : ''}
+          </div>
+          ${lessons > 0 ? `<details style="margin-bottom:1rem">
+            <summary style="cursor:pointer;color:var(--primary);font-size:0.85rem;font-weight:600">View Lessons</summary>
+            <ul style="margin-top:0.5rem;padding-left:1rem;font-size:0.85rem;color:var(--gray)">
+              ${c.lessons.map(l => `<li>📄 ${l.title}</li>`).join('')}
+            </ul>
+          </details>` : ''}
+          <div class="course-actions">${actionBtns}</div>
+        </div>
+      </div>`;
+  }
+
+  async function enroll(courseId) {
+    const res = await fetch(`${API}/courses/${courseId}/enroll/`, {
+      method: 'POST', headers: authHeaders()
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showAlert('✅ ' + data.message, 'success');
+      loadCourses();
+    } else {
+      showAlert(data.error || 'Enrollment failed.');
+    }
+  }
+
+  async function unenroll(courseId) {
+    const res = await fetch(`${API}/courses/${courseId}/enroll/`, {
+      method: 'DELETE', headers: authHeaders()
+    });
+    if (res.ok) {
+      showAlert('👋 Unenrolled successfully.', 'info');
+      loadCourses();
+    }
+  }
+
+  async function createCourse() {
+    const title = document.getElementById('course-title').value.trim();
+    const description = document.getElementById('course-desc').value.trim();
+    const is_published = document.getElementById('course-published').checked;
+    if (!title || !description) return showAlert('Title and description required.', 'danger', 'modal-alert');
+
+    const res = await fetch(`${API}/courses/`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ title, description, is_published })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      closeModal('create-course-modal');
+      showAlert('✅ Course created!', 'success');
+      document.getElementById('course-title').value = '';
+      document.getElementById('course-desc').value = '';
+      loadCourses();
+    } else {
+      showAlert(JSON.stringify(data), 'danger', 'modal-alert');
+    }
+  }
+
+  function openAddLesson(courseId) {
+    document.getElementById('lesson-course-id').value = courseId;
+    openModal('add-lesson-modal');
+  }
+
+  async function addLesson() {
+    const courseId = document.getElementById('lesson-course-id').value;
+    const title = document.getElementById('lesson-title').value.trim();
+    const content = document.getElementById('lesson-content').value.trim();
+    const order = parseInt(document.getElementById('lesson-order').value);
+    if (!title || !content) return showAlert('Title and content required.', 'danger', 'lesson-alert');
+
+    const res = await fetch(`${API}/courses/${courseId}/lessons/`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ title, content, order })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      closeModal('add-lesson-modal');
+      showAlert('✅ Lesson added!', 'success');
+      document.getElementById('lesson-title').value = '';
+      document.getElementById('lesson-content').value = '';
+      loadCourses();
+    } else {
+      showAlert(JSON.stringify(data), 'danger', 'lesson-alert');
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

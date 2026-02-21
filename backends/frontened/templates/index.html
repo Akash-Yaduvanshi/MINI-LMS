@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini LMS - Login</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'style.css' %}">
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="icon">🎓</div>
+      <h1>Mini LMS</h1>
+      <p>Your Learning Management System</p>
+    </div>
+
+    <div class="tab-switcher">
+      <button class="tab-btn active" onclick="switchTab('login')">Sign In</button>
+      <button class="tab-btn" onclick="switchTab('register')">Register</button>
+    </div>
+
+    <div id="alert-box"></div>
+
+    <!-- Login Form -->
+    <div id="login-form">
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input type="text" id="login-username" class="form-control" placeholder="Enter your username">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" id="login-password" class="form-control" placeholder="Enter your password">
+      </div>
+      <button class="btn btn-primary" onclick="login()">
+        <span>🔐</span> Sign In
+      </button>
+    </div>
+
+    <!-- Register Form -->
+    <div id="register-form" class="hidden">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">First Name</label>
+          <input type="text" id="reg-first" class="form-control" placeholder="First name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Last Name</label>
+          <input type="text" id="reg-last" class="form-control" placeholder="Last name">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input type="text" id="reg-username" class="form-control" placeholder="Choose a username">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="reg-email" class="form-control" placeholder="Email address">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select id="reg-role" class="form-control">
+          <option value="student">Student</option>
+          <option value="instructor">Instructor</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="reg-password" class="form-control" placeholder="Password">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirm</label>
+          <input type="password" id="reg-password2" class="form-control" placeholder="Confirm">
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="register()">
+        <span>✨</span> Create Account
+      </button>
+    </div>
+
+    <p class="text-center text-muted mt-2">
+      Demo: admin/admin123 | instructor/pass123 | student/pass123
+    </p>
+  </div>
+</div>
+
+<script>
+  const API = '/api';
+
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach((b, i) => {
+      b.classList.toggle('active', (i === 0 && tab === 'login') || (i === 1 && tab === 'register'));
+    });
+    document.getElementById('login-form').classList.toggle('hidden', tab !== 'login');
+    document.getElementById('register-form').classList.toggle('hidden', tab !== 'register');
+    clearAlert();
+  }
+
+  function showAlert(msg, type = 'danger') {
+    document.getElementById('alert-box').innerHTML =
+      `<div class="alert alert-${type}">⚠️ ${msg}</div>`;
+  }
+
+  function clearAlert() {
+    document.getElementById('alert-box').innerHTML = '';
+  }
+
+  async function login() {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!username || !password) return showAlert('Please fill in all fields.');
+
+    try {
+      const res = await fetch(`${API}/token/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok) return showAlert(data.detail || 'Invalid credentials.');
+
+      localStorage.setItem('access', data.access);
+      localStorage.setItem('refresh', data.refresh);
+
+      // Get profile
+      const profileRes = await fetch(`${API}/accounts/profile/`, {
+        headers: { 'Authorization': `Bearer ${data.access}` }
+      });
+      const profile = await profileRes.json();
+      localStorage.setItem('user', JSON.stringify(profile));
+
+      window.location.href = '/courses/';
+    } catch (e) {
+      showAlert('Connection error. Is the server running?');
+    }
+  }
+
+  async function register() {
+    const body = {
+      username: document.getElementById('reg-username').value.trim(),
+      email: document.getElementById('reg-email').value.trim(),
+      first_name: document.getElementById('reg-first').value.trim(),
+      last_name: document.getElementById('reg-last').value.trim(),
+      role: document.getElementById('reg-role').value,
+      password: document.getElementById('reg-password').value,
+      password2: document.getElementById('reg-password2').value,
+    };
+    if (!body.username || !body.password) return showAlert('Username and password required.');
+
+    try {
+      const res = await fetch(`${API}/accounts/register/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) return showAlert(JSON.stringify(data));
+
+      document.getElementById('alert-box').innerHTML =
+        `<div class="alert alert-success">✅ Account created! Please sign in.</div>`;
+      switchTab('login');
+      document.getElementById('login-username').value = body.username;
+    } catch (e) {
+      showAlert('Connection error.');
+    }
+  }
+
+  // If already logged in, redirect
+  if (localStorage.getItem('access')) window.location.href = '/courses/';
+</script>
+</body>
+</html>
